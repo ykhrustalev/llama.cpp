@@ -537,3 +537,5 @@ void llama_grammar_accept_token_impl(struct llama_grammar * grammar, const struc
 
     smpl->t_sample_us += ggml_time_us() - t_start_sample_us;
 }
+
+
