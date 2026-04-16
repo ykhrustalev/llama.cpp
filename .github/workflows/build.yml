@@ -268,7 +268,7 @@ jobs:
           ./bin/llama-completion -m stories260K-be.gguf -p "One day, Lily met a Shoggoth" -n 500 -c 256
 
   android-arm64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     env:
       NDK_VERSION: "29.0.14206865"
