@@ -204,7 +204,7 @@ static ggml_backend_buffer_t ggml_backend_metal_buffer_type_alloc_buffer(ggml_ba
     ggml_metal_buffer_t res = ggml_metal_buffer_init(ctx_dev, size, shared);
 
     if (res == NULL) {
-        GGML_LOG_ERROR("%s: error: failed to allocate Metal buffer of %zu bytes (out of memory)\n", __func__, size);
+        GGML_LOG_ERROR("%s: failed to allocate Metal buffer of %zu bytes (out of memory)\n", __func__, size);
         return NULL;
     }
 
