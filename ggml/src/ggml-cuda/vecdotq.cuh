@@ -115,6 +115,11 @@ static __device__ __forceinline__ uint32_t unpack_ksigns(const uint8_t v) {
 #define VDR_Q4_0_Q8_1_MMVQ 2
 #define VDR_Q4_0_Q8_1_MMQ  4
 
+// The offsets of q4_0 and q5_0 are applied to the quants before the dot product, as on the CPU.
+// Subtracting them afterwards via the q8_1 block sum would not cancel the rounding error of the q8_1 values:
+// that sum is over the unrounded values, so each rounding error would be weighted by q instead of q - offset.
+
+// v holds the q4_0 quants XORed with 8, i.e. q - 8 as 4 bit two's complement numbers.
 template <int vdr> static __device__ __forceinline__ float vec_dot_q4_0_q8_1_impl(
     const int * v, const int * u, const float & d4, const half2 & ds8) {
 
@@ -122,18 +127,17 @@ template <int vdr> static __device__ __forceinline__ float vec_dot_q4_0_q8_1_imp
 
 #pragma unroll
     for (int i = 0; i < vdr; ++i) {
-        const int vi0 = (v[i] >> 0) & 0x0F0F0F0F;
-        const int vi1 = (v[i] >> 4) & 0x0F0F0F0F;
+        // Move each 4 bit value to the upper half of its byte, as int8 this is 16*(q - 8):
+        const int vi0 = ((uint32_t) v[i] << 4) & 0xF0F0F0F0;
+        const int vi1 = ((uint32_t) v[i] << 0) & 0xF0F0F0F0;
 
         // SIMD dot product of quantized values
         sumi = ggml_cuda_dp4a(vi0, u[2*i+0], sumi);
         sumi = ggml_cuda_dp4a(vi1, u[2*i+1], sumi);
     }
 
-    const float2 ds8f = __half22float2(ds8);
-
-    // second part effectively subtracts 8 from each quant value
-    return d4 * (sumi * ds8f.x - (8*vdr/QI4_0) * ds8f.y);
+    // 1/16 undoes the factor 16 of the quants
+    return d4 * __low2float(ds8) * (sumi * (1.0f/16.0f));
 }
 
 #define VDR_Q4_1_Q8_1_MMVQ 2
@@ -179,25 +183,25 @@ template <int vdr> static __device__ __forceinline__ float vec_dot_q5_0_q8_1_imp
 
 #pragma unroll
     for (int i = 0; i < vdr; ++i) {
-        int vi0 = (vl[i] >>  0) & 0x0F0F0F0F; // lower 4 qs bits, still need qh as 5th bits
-        vi0    |= (vh[i] <<  4) & 0x00000010; // 0 ->  4
-        vi0    |= (vh[i] << 11) & 0x00001000; // 1 -> 12
-        vi0    |= (vh[i] << 18) & 0x00100000; // 2 -> 20
-        vi0    |= (vh[i] << 25) & 0x10000000; // 3 -> 28
+        // Assemble each 5 bit quant q in the upper 5 bits of its byte with the 5th bit inverted, as int8 this is 8*(q - 16):
+        const int nvh = ~vh[i];
+        int vi0 = (vl[i] <<  3) & 0x78787878; // lower 4 qs bits, still need qh as 5th bits
+        vi0    |= (nvh   <<  7) & 0x00000080; // 0 ->  7
+        vi0    |= (nvh   << 14) & 0x00008000; // 1 -> 15
+        vi0    |= (nvh   << 21) & 0x00800000; // 2 -> 23
+        vi0    |= (nvh   << 28) & 0x80000000; // 3 -> 31
         sumi = ggml_cuda_dp4a(vi0, u[2*i+0], sumi); // SIMD dot product of quantized values
 
-        int vi1 = (vl[i] >>  4) & 0x0F0F0F0F; // upper 4 qs bits, still need qh as 5th bits
-        vi1    |= (vh[i] >> 12) & 0x00000010; // 16 ->  4
-        vi1    |= (vh[i] >>  5) & 0x00001000; // 17 -> 12
-        vi1    |= (vh[i] <<  2) & 0x00100000; // 18 -> 20
-        vi1    |= (vh[i] <<  9) & 0x10000000; // 19 -> 28
+        int vi1 = (vl[i] >>  1) & 0x78787878; // upper 4 qs bits, still need qh as 5th bits
+        vi1    |= (nvh   >>  9) & 0x00000080; // 16 ->  7
+        vi1    |= (nvh   >>  2) & 0x00008000; // 17 -> 15
+        vi1    |= (nvh   <<  5) & 0x00800000; // 18 -> 23
+        vi1    |= (nvh   << 12) & 0x80000000; // 19 -> 31
         sumi = ggml_cuda_dp4a(vi1, u[2*i+1], sumi); // SIMD dot product of quantized values
     }
 
-    const float2 ds8f = __half22float2(ds8);
-
-    // second part effectively subtracts 16 from each quant value
-    return d5 * (sumi * ds8f.x - (16*vdr/QI5_0) * ds8f.y);
+    // 1/8 undoes the factor 8 of the quants
+    return d5 * __low2float(ds8) * (sumi * (1.0f/8.0f));
 }
 
 #define VDR_Q5_1_Q8_1_MMVQ 2
@@ -781,7 +785,7 @@ static __device__ __forceinline__ float vec_dot_q4_0_q8_1(
 
 #pragma unroll
     for (int i = 0; i < VDR_Q4_0_Q8_1_MMVQ; ++i) {
-        v[i]     = get_int_b2(bq4_0->qs, iqs + i);
+        v[i]     = get_int_b2(bq4_0->qs, iqs + i) ^ 0x88888888; // q - 8, see vec_dot_q4_0_q8_1_impl
         u[2*i+0] = get_int_b4(bq8_1->qs, iqs + i);
         u[2*i+1] = get_int_b4(bq8_1->qs, iqs + i + QI4_0);
     }

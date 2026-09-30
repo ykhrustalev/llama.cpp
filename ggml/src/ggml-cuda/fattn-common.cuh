@@ -164,13 +164,13 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q4_0(
 
         int v;
         ggml_cuda_memcpy_1<sizeof(int), 2>(&v, K_q4_0[ib].qs + sizeof(int)*iqs4);
-        v = (v >> shift) & 0x0F0F0F0F;
+        v = (((uint32_t) v << (4 - shift)) & 0xF0F0F0F0) ^ 0x80808080; // 16*(q - 8), see vec_dot_q4_0_q8_1_impl
         const int u = Q_q8[k_KQ_0/nthreads];
 
         const int sumi = ggml_cuda_dp4a(v, u, 0);
 
         const float2 Q_ds = ((const float2 *) Q_ds_v)[k_KQ_0/nthreads];
-        sum += __half2float(K_q4_0[ib].d) * (sumi*Q_ds.x - (8/QI8_1)*Q_ds.y);
+        sum += __half2float(K_q4_0[ib].d) * Q_ds.x * (sumi * (1.0f/16.0f));
     }
 
     return sum;
@@ -241,6 +241,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q5_0(
             v |= (vh << 18) & 0x00100000; // 2 -> 20
             v |= (vh << 25) & 0x10000000; // 3 -> 28
         }
+        v = ((uint32_t) v << 3) ^ 0x80808080; // 8*(q - 16), see vec_dot_q5_0_q8_1_impl
 
         const int u = Q_q8[k_KQ_0/nthreads];
 
@@ -248,7 +249,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q5_0(
 
         const float2 Q_ds = ((const float2 *) Q_ds_v)[k_KQ_0/nthreads];
 
-        sum += __half2float(K_q5_0[ib].d) * (sumi*Q_ds.x - (16/QI8_1)*Q_ds.y);
+        sum += __half2float(K_q5_0[ib].d) * Q_ds.x * (sumi * (1.0f/8.0f));
     }
 
     return sum;

@@ -221,7 +221,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
         x_qs[i*sram_stride + kbx*(2*QI4_0) + kqsx + 0]     = __vsub4((qs0 >> 0) & 0x0F0F0F0F, 0x08080808);
         x_qs[i*sram_stride + kbx*(2*QI4_0) + kqsx + QI4_0] = __vsub4((qs0 >> 4) & 0x0F0F0F0F, 0x08080808);
 #else
-        x_qs[i*(MMQ_TILE_NE_K + 1) + txi] = qs0;
+        x_qs[i*(MMQ_TILE_NE_K + 1) + txi] = qs0 ^ 0x88888888; // q - 8, see vec_dot_q4_0_q8_1_impl
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
     }
 
