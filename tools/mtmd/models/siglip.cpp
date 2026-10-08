@@ -70,12 +70,12 @@ ggml_cgraph * clip_graph_siglip::build() {
             cur = ggml_add(ctx0, cur, model.mm_input_norm_b);
         }
 
-        // d1-omni uses the exact gelu in the projector
+        // projector_hidden_act "gelu" is the exact gelu
         cur = build_ffn(cur,
             model.mm_1_w, model.mm_1_b,
             nullptr, nullptr,
             model.mm_2_w, model.mm_2_b,
-            proj_type == PROJECTOR_TYPE_D1OMNI_V ? FFN_GELU_ERF : FFN_GELU,
+            FFN_GELU_ERF,
             -1);
 
     } else if (proj_type == PROJECTOR_TYPE_JANUS_PRO) {
